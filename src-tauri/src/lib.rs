@@ -85,6 +85,7 @@ struct Usage {
 
 struct AppState {
     usage: Mutex<Result<Usage, String>>,
+    icon_rect: Mutex<Option<[f64; 4]>>, // x, y, w, h in physical px
 }
 
 // ---------- data fetching ----------
@@ -238,14 +239,8 @@ fn update_tray_ui(app: &AppHandle, result: &Result<Usage, String>, force: Option
                     let _ = tray.set_icon(Some(img));
                     let _ = tray.set_icon_as_template(is_template);
                 }
-                // title: prefix a warning glyph when in the red
-                let pct = w.utilization.round() as i64;
-                let title = if level == Level::Red {
-                    format!("⚠️ {pct}%")
-                } else {
-                    format!("{pct}%")
-                };
-                let _ = tray.set_title(Some(title));
+                // title is just the % — the gauge color carries the urgency
+                let _ = tray.set_title(Some(format!("{}%", w.utilization.round() as i64)));
             }
             None => {
                 let _ = tray.set_title(Some("—".to_string()));
@@ -259,22 +254,29 @@ fn update_tray_ui(app: &AppHandle, result: &Result<Usage, String>, force: Option
     }
 }
 
-fn show_popover(app: &AppHandle, cursor: PhysicalPosition<f64>) {
-    if let Some(w) = app.get_webview_window("main") {
-        if let Ok(size) = w.outer_size() {
-            let x = cursor.x - size.width as f64 / 2.0;
-            let y = cursor.y + 14.0; // just below the menu-bar icon
-            let _ = w.set_position(PhysicalPosition::new(x.max(6.0), y));
-        }
-        let _ = w.show();
-        let _ = w.set_focus();
-        let _ = w.emit("popover", "enter");
-    }
+fn point_in(px: f64, py: f64, x: f64, y: f64, w: f64, h: f64, pad: f64) -> bool {
+    px >= x - pad && px <= x + w + pad && py >= y - pad && py <= y + h + pad
 }
 
-fn request_hide(app: &AppHandle) {
+// Anchor the popover to the tray ICON's screen rect (fixed), not the cursor, so
+// it always opens in the same spot. Also stash the icon rect for the hover monitor.
+fn show_popover(app: &AppHandle, rect: tauri::Rect) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.emit("popover", "leave");
+        let scale = w.scale_factor().unwrap_or(2.0);
+        let pos = rect.position.to_physical::<f64>(scale);
+        let isize = rect.size.to_physical::<f64>(scale);
+        if let Some(st) = app.try_state::<AppState>() {
+            *st.icon_rect.lock().unwrap() = Some([pos.x, pos.y, isize.width, isize.height]);
+        }
+        if let Ok(win) = w.outer_size() {
+            let icon_cx = pos.x + isize.width / 2.0;
+            let icon_bottom = pos.y + isize.height;
+            let x = (icon_cx - win.width as f64 / 2.0).max(6.0);
+            let y = icon_bottom + 2.0; // just below the menu bar
+            let _ = w.set_position(PhysicalPosition::new(x, y));
+        }
+        let _ = w.show();
+        let _ = w.emit("popover", "enter");
     }
 }
 
@@ -299,9 +301,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .icon(icon)
         .icon_as_template(true)
         .title("…")
-        .tooltip("Claude usage")
         .menu(&menu)
-        .show_menu_on_left_click(false) // left-click pins; right-click opens menu
+        .show_menu_on_left_click(false) // hover shows popover; right-click opens menu
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "autostart" => {
@@ -315,30 +316,17 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .on_tray_icon_event(|tray, event| {
             let app = tray.app_handle();
             match event {
-                TrayIconEvent::Enter { position, .. } => show_popover(app, position),
-                TrayIconEvent::Leave { .. } => {
-                    let pinned = app
-                        .try_state::<AppState>()
-                        .map(|s| s.pinned.load(Ordering::Relaxed))
+                // Show on Enter/Move. HIDING is owned by the hover-monitor thread
+                // (geometry-based), because macOS Enter/Leave are unreliable and a
+                // stationary cursor emits no events. Click does nothing.
+                TrayIconEvent::Enter { rect, .. } => show_popover(app, rect),
+                TrayIconEvent::Move { rect, .. } => {
+                    let visible = app
+                        .get_webview_window("main")
+                        .and_then(|w| w.is_visible().ok())
                         .unwrap_or(false);
-                    if !pinned {
-                        request_hide(app);
-                    }
-                }
-                TrayIconEvent::Click {
-                    button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
-                    position,
-                    ..
-                } => {
-                    if let Some(s) = app.try_state::<AppState>() {
-                        let now = !s.pinned.load(Ordering::Relaxed);
-                        s.pinned.store(now, Ordering::Relaxed);
-                        if now {
-                            show_popover(app, position);
-                        } else {
-                            request_hide(app);
-                        }
+                    if !visible {
+                        show_popover(app, rect);
                     }
                 }
                 _ => {}
@@ -363,7 +351,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .manage(AppState {
             usage: Mutex::new(Err("LOADING".to_string())),
-            pinned: AtomicBool::new(false),
+            icon_rect: Mutex::new(None),
         })
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -414,6 +402,54 @@ pub fn run() {
                         Err(_) => 120,
                     };
                     std::thread::sleep(Duration::from_secs(secs));
+                }
+            });
+
+            // Hover monitor — geometry-based hide. Polls the real cursor position
+            // and hides the popover once it's outside BOTH the icon and the panel.
+            // Robust to flaky tray events and a stationary cursor (no events).
+            let hover = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut out = 0u32;
+                let mut emitted = false;
+                loop {
+                    std::thread::sleep(Duration::from_millis(90));
+                    let Some(w) = hover.get_webview_window("main") else {
+                        continue;
+                    };
+                    if !w.is_visible().unwrap_or(false) {
+                        out = 0;
+                        emitted = false;
+                        continue;
+                    }
+                    let Ok(cursor) = hover.cursor_position() else {
+                        continue;
+                    };
+                    let icon = hover
+                        .try_state::<AppState>()
+                        .and_then(|s| *s.icon_rect.lock().unwrap());
+                    let in_icon = icon
+                        .map(|r| point_in(cursor.x, cursor.y, r[0], r[1], r[2], r[3], 8.0))
+                        .unwrap_or(false);
+                    let in_win = (|| {
+                        let p = w.outer_position().ok()?;
+                        let s = w.outer_size().ok()?;
+                        Some(point_in(
+                            cursor.x, cursor.y, p.x as f64, p.y as f64, s.width as f64,
+                            s.height as f64, 6.0,
+                        ))
+                    })()
+                    .unwrap_or(false);
+                    if in_icon || in_win {
+                        out = 0;
+                        emitted = false;
+                    } else {
+                        out += 1;
+                        if out >= 2 && !emitted {
+                            emitted = true;
+                            let _ = w.emit("popover", "leave");
+                        }
+                    }
                 }
             });
             Ok(())

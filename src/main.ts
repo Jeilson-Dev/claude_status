@@ -16,13 +16,12 @@ type Usage = {
 };
 
 const FADE_MS = 150;
-const HIDE_GRACE_MS = 200;
 
 const $ = (id: string) => document.getElementById(id)!;
 
-let hideTimer: number | null = null;
+let shownState = false;
 let refreshTimer: number | null = null;
-let overPanel = false;
+let pendingHide: number | null = null;
 
 /** "Resets in 1 hr 53 min" from an ISO timestamp. */
 function formatReset(iso: string | null): string {
@@ -116,12 +115,14 @@ async function render() {
   }
 }
 
-// ---- fade + visibility ----
+// ---- fade + visibility (hover state machine) ----
+// macOS tray Enter/Leave events are unreliable, so we treat every Enter/Move as a
+// liveness signal and run a watchdog that hides once the signal goes stale.
 
 function fadeIn() {
-  if (hideTimer) {
-    clearTimeout(hideTimer);
-    hideTimer = null;
+  if (pendingHide) {
+    clearTimeout(pendingHide);
+    pendingHide = null;
   }
   document.body.classList.remove("hiding");
   requestAnimationFrame(() => document.body.classList.add("shown"));
@@ -130,11 +131,11 @@ function fadeIn() {
 function fadeOutAndHide() {
   document.body.classList.remove("shown");
   document.body.classList.add("hiding");
-  window.setTimeout(() => getCurrentWindow().hide(), FADE_MS);
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
+  if (pendingHide) clearTimeout(pendingHide);
+  pendingHide = window.setTimeout(() => {
+    getCurrentWindow().hide();
+    pendingHide = null;
+  }, FADE_MS);
 }
 
 // Snap both bars back to 0 with no transition, so the next render animates
@@ -154,36 +155,30 @@ function resetBars() {
   }
 }
 
-function onEnter() {
+function ensureShown() {
+  if (shownState) return;
+  shownState = true;
   resetBars();
-  render(); // async: sets the real widths a tick later → bars animate 0→value
+  render(); // async: real widths a tick later → bars animate 0→value
   fadeIn();
   if (!refreshTimer) refreshTimer = window.setInterval(render, 30_000);
 }
 
-function scheduleHide() {
-  if (hideTimer) clearTimeout(hideTimer);
-  hideTimer = window.setTimeout(() => {
-    if (!overPanel) fadeOutAndHide();
-  }, HIDE_GRACE_MS);
+function hideNow() {
+  if (!shownState) return;
+  shownState = false;
+  fadeOutAndHide();
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  // Visibility is driven from Rust: "enter" when the cursor reaches the icon,
+  // "leave" when the hover monitor sees it leave both the icon and the panel.
   listen<string>("popover", (e) => {
-    if (e.payload === "enter") onEnter();
-    else scheduleHide();
-  });
-
-  // keep the popover alive while the pointer is over it
-  document.addEventListener("mouseenter", () => {
-    overPanel = true;
-    if (hideTimer) {
-      clearTimeout(hideTimer);
-      hideTimer = null;
-    }
-  });
-  document.addEventListener("mouseleave", () => {
-    overPanel = false;
-    scheduleHide();
+    if (e.payload === "leave") hideNow();
+    else ensureShown();
   });
 });
