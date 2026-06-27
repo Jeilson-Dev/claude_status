@@ -1,0 +1,132 @@
+:root {
+  --bg: rgba(250, 250, 252, 0.96);
+  --border: rgba(0, 0, 0, 0.08);
+  --label: #1d1d1f;
+  --sub: #86868b;
+  --track: #e6e6ea;
+  --fill: #2f7bf6;
+  --fill-warn: #f5a623;
+  --fill-danger: #e0322e;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: rgba(36, 36, 38, 0.92);
+    --border: rgba(255, 255, 255, 0.12);
+    --label: #f5f5f7;
+    --sub: #98989d;
+    --track: rgba(255, 255, 255, 0.14);
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+
+/* body fills the window; padding leaves room for the card's drop shadow.
+   opacity is animated for the fade in/out. */
+body {
+  height: 100vh;
+  padding: 12px;
+  display: flex;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+body.shown {
+  opacity: 1;
+}
+body.hiding {
+  opacity: 0;
+}
+
+.widget {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 14px 18px;
+  background: var(--bg);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 2px 6px rgba(0, 0, 0, 0.12);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* subtle divider between the two bars */
+.block + .block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--border);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--label);
+}
+
+.pct {
+  font-size: 12px;
+  color: var(--sub);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.3s ease;
+}
+.pct.warn {
+  color: var(--fill-warn);
+}
+.pct.danger {
+  color: var(--fill-danger);
+  font-weight: 600;
+}
+
+.track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: var(--fill);
+  transition: width 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+/* slight stagger so the two bars cascade on open */
+#weekly-fill {
+  transition-delay: 90ms;
+}
+.fill.warn {
+  background: var(--fill-warn);
+}
+.fill.danger {
+  background: var(--fill-danger);
+}
+
+.sub {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--sub);
+  font-variant-numeric: tabular-nums;
+}
