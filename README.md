@@ -6,7 +6,9 @@ Code's `/usage` screen displays.
 
 Built with [Tauri 2](https://tauri.app) (Rust backend + vanilla TS frontend).
 
-![two progress bars: Current session and Weekly limits]
+<p align="center">
+  <img src="docs.png" alt="Claude Status Widget — the menu-bar gauge icon and the open popover showing Current session and Weekly limits" width="572">
+</p>
 
 ## How it works
 
