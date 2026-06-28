@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "claude-status-widget",
+  "productName": "Claude Usage Monitor",
   "version": "0.1.0",
   "identifier": "com.jsondev.claudestatus",
   "build": {
@@ -15,7 +15,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Claude Usage",
+        "title": "Claude Usage Monitor",
         "width": 344,
         "height": 172,
         "resizable": false,
