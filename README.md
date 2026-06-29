@@ -39,6 +39,14 @@ Built with [Tauri 2](https://tauri.app) (Rust backend + vanilla TS frontend).
 > Code OAuth token from a third-party tool is against Anthropic's ToS. This is for
 > personal, local, read-only monitoring with your own account.
 
+## Download
+
+Prebuilt installers are available on the GitHub Releases page.
+
+- **[Apple Silicon (M1/M2/M3/M4) - Download DMG](https://github.com/jeilsonaraujo/claude_status/releases/download/0.1.0/Claude-Usage-Monitor-0.1.0-arm64.dmg)**
+
+> The link above always points to the latest release.
+
 ## Develop
 
 ```bash
