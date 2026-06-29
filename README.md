@@ -46,7 +46,14 @@ Prebuilt installers are available on the GitHub Releases page.
 - **[Apple Silicon (M1/M2/M3/M4) - Download DMG](https://github.com/jeilsonaraujo/claude_status/releases/download/0.1.0/Claude-Usage-Monitor-0.1.0-arm64.dmg)**
 
 > The link above always points to the latest release.
-
+>
+> **Note:** Since the app is not code signed or notarized, macOS may show a *"Claude Usage Monitor is damaged and can't be opened"* message the first time you launch it. If that happens, remove the quarantine attribute by running:
+>
+> ```bash
+> xattr -dr com.apple.quarantine "/Applications/Claude Usage Monitor.app"
+> ```
+>
+> Then launch the app again.
 ## Develop
 
 ```bash
